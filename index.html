@@ -5,47 +5,123 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Dice Throne — Bot</title>
   <style>
-    body{font-family:system-ui;margin:0;padding:16px;background:#0b0f14;color:#e8f0ff}
+    :root{
+      --bg:#0b0f14; --text:#e8f0ff; --muted:#9fb0c8;
+      --border:rgba(255,255,255,.12);
+      --good:#34d399; --bad:#fb7185; --warn:#fbbf24; --info:#7dd3fc;
+    }
+    *{box-sizing:border-box}
+    body{font-family:system-ui;margin:0;background:var(--bg);color:var(--text)}
+    .wrap{max-width:1200px;margin:0 auto;padding:14px}
+    .top{display:grid;grid-template-columns:1fr 360px;gap:12px}
+    @media (max-width: 980px){ .top{grid-template-columns:1fr} }
+
+    .panel{border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.03);padding:12px;}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    select,button{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.25);color:#e8f0ff}
+    select,button{padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.25);color:var(--text)}
     button{cursor:pointer}
-    .panel{border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:12px;margin-top:12px;background:rgba(255,255,255,.03)}
-    .log{white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px;max-height:260px;overflow:auto}
-    .small{opacity:.8;font-size:12px}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .small{font-size:12px;color:var(--muted)}
+    .diceRow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    .die{
+      width:54px;height:54px;border-radius:14px;border:1px solid var(--border);
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      background:rgba(0,0,0,.22);user-select:none;
+    }
+    .die .n{font-size:18px;font-weight:800;line-height:1}
+    .die .f{font-size:11px;color:var(--muted);margin-top:4px}
+    .die.locked{outline:2px solid rgba(52,211,153,.6)}
+    .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+    @media (max-width: 980px){ .cards{grid-template-columns:1fr} }
+
+    .summary{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto}
+    .sItem{border:1px solid var(--border);border-radius:12px;padding:10px;background:rgba(0,0,0,.22);}
+    .sTop{display:flex;justify-content:space-between;gap:10px;align-items:center}
+    .tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border)}
+    .tag.good{color:var(--good)} .tag.bad{color:var(--bad)} .tag.warn{color:var(--warn)} .tag.info{color:var(--info)}
+    .log{white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px;max-height:280px;overflow:auto;background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:12px;padding:10px}
+
+    .tokRow{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .tok{
+      display:flex;gap:10px;align-items:center;justify-content:space-between;
+      min-width:260px;border:1px solid var(--border);border-radius:12px;padding:8px 10px;background:rgba(0,0,0,.18);
+      font-size:13px;
+    }
+    .tok .btns{display:flex;gap:6px}
+    .tok .btns button{padding:6px 10px}
+    .abilities{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+    .ab{
+      border:1px solid var(--border);border-radius:12px;padding:10px;background:rgba(0,0,0,.18);
+      display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;
+    }
+    .ab .name{font-weight:900}
   </style>
 </head>
 
 <body>
-  <div class="row">
-    <label>Joueur</label>
-    <select id="playerSelect"></select>
+<div class="wrap">
+  <div class="top">
+    <!-- LEFT -->
+    <div class="panel">
+      <div class="row">
+        <label>Joueur</label>
+        <select id="playerSelect"></select>
 
-    <label>Bot</label>
-    <select id="botSelect"></select>
+        <label>Bot</label>
+        <select id="botSelect"></select>
 
-    <button id="rollBtn">Lancer</button>
-    <button id="rerollBtn">Relancer</button>
+        <button id="rollBtn">Lancer</button>
+        <button id="rerollBtn">Relancer</button>
 
-    <button id="endPlayerTurnBtn">Fin tour joueur</button>
-    <button id="playBotBtn">Jouer bot</button>
+        <button id="playBotBtn">Jouer bot</button>
+        <button id="defenseBtn">Défense (info)</button>
 
-    <button id="defendBtn">Défendre</button>
-    <button id="skipDefenseBtn">Passer défense</button>
+        <button id="resetBtn">Reset</button>
+      </div>
 
-    <button id="resetBtn">Reset</button>
+      <div class="small" id="hud"></div>
+      <div class="diceRow" id="diceRow"></div>
+
+      <div class="cards">
+        <div class="panel">
+          <b>Jetons Joueur</b>
+          <div class="tokRow" id="playerTokens"></div>
+        </div>
+        <div class="panel">
+          <b>Jetons Bot</b>
+          <div class="tokRow" id="botTokens"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:12px">
+        <b>Capacités joueur</b>
+        <div class="small">
+          Attaques appliquées immédiatement. COMBO (si présent) est consommé après une attaque et redonne une phase offensive.
+          <br/>Le bouton Défense ne bloque plus une attaque (pas d’attente), il sert à faire le jet défensif (et renvoi si applicable).
+        </div>
+        <div class="abilities" id="abilities"></div>
+      </div>
+
+      <div class="panel" style="margin-top:12px">
+        <div class="row" style="justify-content:space-between">
+          <b>Log</b>
+          <button id="clearLog">Clear</button>
+        </div>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <b>Résumé</b>
+        <span class="small">dern. actions</span>
+      </div>
+      <div class="summary" id="summary"></div>
+    </div>
   </div>
+</div>
 
-  <div class="panel">
-    <div id="hud" class="small"></div>
-    <div id="diceRow"></div>
-    <div id="abilities"></div>
-  </div>
-
-  <div class="panel">
-    <b>Log</b>
-    <div class="log" id="log"></div>
-  </div>
-
-  <script type="module" src="./src/app.js"></script>
+<script type="module" src="./src/app.js"></script>
 </body>
 </html>

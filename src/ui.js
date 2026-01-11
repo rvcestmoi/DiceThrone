@@ -8,49 +8,135 @@ export function fillSelect(selectEl, characters){
   }
 }
 
-export function render(state, abilities){
-  // HUD
+export function renderAll({ state, characters, abilities, faceProvider, onRunAbility, onToggleLock, onIncToken, onDecToken }){
   const hud = document.getElementById("hud");
-  const atk = state.flow?.pendingAttack;
+
   hud.innerHTML = `
-    <div><b>Joueur:</b> ${state.player.name} — HP ${state.player.hp}/${state.player.hpMax} — Combo:${state.player.tokens?.combo||0} Invis:${state.player.tokens?.invis||0}</div>
-    <div><b>Bot:</b> ${state.bot.name} — HP ${state.bot.hp}/${state.bot.hpMax} — Entoilé:${state.bot.statuses?.entoile?.stacks||0}</div>
-    <div><b>Tour:</b> ${state.turn} — Relances:${state.rerollsLeft}</div>
-    <div><b>Attaque en attente:</b> ${atk ? `${atk.from} → ${atk.dmg} ${atk.unblockable ? "(IMPARABLE)" : ""}` : "—"}</div>
-  `;
-
-  // Dice
-  const diceRow = document.getElementById("diceRow");
-  diceRow.innerHTML = state.dice.map((d,i)=>`
-    <button data-i="${i}" style="margin:6px;padding:10px;border-radius:12px">
-      ${d.v} ${d.locked ? "🔒" : ""}
-    </button>
-  `).join("");
-
-  diceRow.querySelectorAll("button").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const i = Number(btn.dataset.i);
-      state.dice[i].locked = !state.dice[i].locked;
-      // l'app re-render ensuite
-    });
-  });
-
-  // Abilities
-  const ab = document.getElementById("abilities");
-  ab.innerHTML = `
-    <div style="margin-top:10px">
-      <div><b>Capacités (${state.turn})</b></div>
-      ${abilities.length ? abilities.map((a, idx)=>`
-        <div style="margin-top:8px;border:1px solid rgba(255,255,255,.12);padding:8px;border-radius:12px">
-          <div><b>${a.name}</b></div>
-          <div style="opacity:.8;font-size:12px">${a.reqText ?? ""}</div>
-          <button data-ab="${idx}" style="margin-top:8px">Activer</button>
-        </div>
-      `).join("") : `<div style="opacity:.7;margin-top:8px">Aucune capacité</div>`}
+    <div class="small">
+      <b>Relances:</b> ${state.rerollsLeft}
+      <br/>
+      <b>Joueur:</b> ${state.player.name} HP ${state.player.hp}/${state.player.hpMax}
+      · Combo:${state.player.tokens?.combo||0} · Invis:${state.player.tokens?.invis||0}
+      <br/>
+      <b>Bot:</b> ${state.bot.name} HP ${state.bot.hp}/${state.bot.hpMax}
+      · Entoilé:${state.bot.statuses?.entoile?.stacks||0}
     </div>
   `;
 
+  // Dice row
+  const diceRow = document.getElementById("diceRow");
+  diceRow.innerHTML = "";
+  state.dice.forEach((d,i)=>{
+    const b = document.createElement("div");
+    b.className = "die" + (d.locked ? " locked" : "");
+    b.innerHTML = `
+      <div class="n">${d.v}</div>
+      <div class="f">${faceProvider(d.v)}</div>
+    `;
+    b.addEventListener("click", ()=>onToggleLock(i));
+    diceRow.appendChild(b);
+  });
+
+  // Tokens panels
+  renderTokens({
+    hostId: "playerTokens",
+    fighter: state.player,
+    fighterChar: characters.find(c=>c.id===state.player.charId),
+    who: "player",
+    onIncToken, onDecToken
+  });
+
+  renderTokens({
+    hostId: "botTokens",
+    fighter: state.bot,
+    fighterChar: characters.find(c=>c.id===state.bot.charId),
+    who: "bot",
+    onIncToken, onDecToken
+  });
+
+  // Abilities
+  const abilitiesHost = document.getElementById("abilities");
+  abilitiesHost.innerHTML = "";
+  if(!abilities.length){
+    abilitiesHost.innerHTML = `<div class="ab"><div><div class="name">Aucune capacité</div><div class="small">Relance ou joue le bot.</div></div></div>`;
+  } else {
+    abilities.forEach((a, idx)=>{
+      const el = document.createElement("div");
+      el.className = "ab";
+      el.innerHTML = `
+        <div>
+          <div class="name">${a.name}</div>
+          <div class="small">${a.reqText ?? ""}</div>
+        </div>
+        <button data-i="${idx}">Activer</button>
+      `;
+      el.querySelector("button").addEventListener("click", ()=>onRunAbility(idx));
+      abilitiesHost.appendChild(el);
+    });
+  }
+
+  // Summary
+  const summary = document.getElementById("summary");
+  summary.innerHTML = "";
+  state.summary.forEach(item=>{
+    const el = document.createElement("div");
+    el.className = "sItem";
+    el.innerHTML = `
+      <div class="sTop">
+        <b>${escapeHtml(item.title)}</b>
+        <span class="tag ${item.tag}">${item.tag.toUpperCase()}</span>
+      </div>
+      <div class="small">${escapeHtml(item.detail || "")}</div>
+    `;
+    summary.appendChild(el);
+  });
+
   // Log
-  const logEl = document.getElementById("log");
-  logEl.textContent = state.log.join("\n");
+  document.getElementById("log").textContent = state.log.join("\n");
+}
+
+function renderTokens({ hostId, fighter, fighterChar, who, onIncToken, onDecToken }){
+  const host = document.getElementById(hostId);
+  host.innerHTML = "";
+
+  const controls = fighterChar?.tokenControls || [];
+  if(!controls.length){
+    host.innerHTML = `<div class="small">Aucun jeton</div>`;
+    return;
+  }
+
+  for(const c of controls){
+    const cur = readValue(fighter, c);
+    const el = document.createElement("div");
+    el.className = "tok";
+    el.innerHTML = `
+      <div>
+        <b>${c.label}</b>
+        <div class="small">${cur} / ${c.max ?? "∞"}</div>
+      </div>
+      <div class="btns">
+        <button>-</button>
+        <button>+</button>
+      </div>
+    `;
+    const [bMinus, bPlus] = el.querySelectorAll("button");
+    bMinus.addEventListener("click", ()=>onDecToken(who, c.id));
+    bPlus.addEventListener("click", ()=>onIncToken(who, c.id));
+    host.appendChild(el);
+  }
+}
+
+function readValue(fighter, control){
+  if(control.kind === "token") return fighter.tokens?.[control.id] ?? 0;
+  if(control.kind === "status") return fighter.statuses?.[control.id]?.stacks ?? 0;
+  return 0;
+}
+
+function escapeHtml(s){
+  return String(s)
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
 }

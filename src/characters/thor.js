@@ -1,7 +1,6 @@
 // src/characters/thor.js
 import {
   dealDamage,
-  heal,
   hasSmallStraight,
   hasLargeStraight,
   log as engineLog,
