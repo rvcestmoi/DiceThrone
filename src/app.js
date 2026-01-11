@@ -4,97 +4,156 @@ import { fillSelect, renderAll } from "./ui.js";
 
 const playerSelect = document.getElementById("playerSelect");
 const botSelect = document.getElementById("botSelect");
+const difficultySelect = document.getElementById("difficultySelect");
 
 fillSelect(playerSelect, CHARACTERS);
 fillSelect(botSelect, CHARACTERS);
 
 playerSelect.value = "spiderman";
 botSelect.value = "thor";
+difficultySelect.value = "easy";
 
-let state = makeState(byId(playerSelect.value), byId(botSelect.value));
+let state = makeState(byId(playerSelect.value), byId(botSelect.value), difficultySelect.value);
 
 function currentChars(){
   return { playerChar: byId(playerSelect.value), botChar: byId(botSelect.value) };
 }
 
-function applyPlayerAttackToBot({ dmg, parryable, label }){
-  // ENTOILÉ sur bot: si attaque PARABLE -> devient IMPARABLE et consomme le jeton
-  if(parryable && state.bot.statuses?.entoile?.stacks > 0){
-    delete state.bot.statuses.entoile;
-    parryable = false;
-    log(state, "ENTOILÉ (bot): l’attaque PARABLE devient IMPARABLE et le jeton est retiré.");
-    pushSummary(state, { tag:"warn", title:"Entoilé consommé", detail:"Attaque devenue IMPARABLE." });
-  }
+/* =========================
+   DIFFICULTÉ / COMBO
+========================= */
 
-  dealDamage(state.bot, dmg);
-  log(state, `Joueur inflige ${dmg} dégâts (${parryable ? "PARABLES" : "IMPARABLES"}) — ${label}`);
-  pushSummary(state, { tag:"info", title:"Joueur attaque", detail:`${dmg} (${parryable ? "PARABLE" : "IMPARABLE"}) — ${label}` });
+function comboExtraCount(){
+  // Facile/Moyen: 1 attaque bonus ; Difficile: 2 attaques bonus
+  return state.difficulty === "hard" ? 2 : 1;
+}
 
-  // ✅ COMBO ultra simple: si Combo=1, il attaque 2 fois
-  // -> on consomme le jeton et on reset la phase offensive
+function spendComboAndGrantExtraAttacksIfAny(){
   if((state.player.tokens?.combo || 0) >= 1){
-    state.player.tokens.combo = 0;
-    log(state, "COMBO consommé → attaque bonus immédiate (relances remises).");
-    pushSummary(state, { tag:"good", title:"COMBO", detail:"Attaque bonus immédiate (phase offensive reset)." });
+    state.player.tokens.combo = 0; // max 1, consommé
+    const extra = comboExtraCount();
+    state.flow.extraAttacksRemaining = extra;
+
+    log(state, `COMBO consommé → +${extra} attaque(s) bonus (difficulté=${state.difficulty}).`);
+    pushSummary(state, { tag:"good", title:"COMBO", detail:`+${extra} attaque(s) bonus. Dés/relances reset.` });
+
+    resetRollPhase(state);
+    return true;
+  }
+  return false;
+}
+
+function afterPlayerAttackMaybeContinueCombo(){
+  if(state.flow.extraAttacksRemaining > 0){
+    state.flow.extraAttacksRemaining--;
+    log(state, `Attaque bonus restante(s): ${state.flow.extraAttacksRemaining}. Dés/relances reset.`);
+    pushSummary(state, { tag:"good", title:"Attaque bonus", detail:`Encore ${state.flow.extraAttacksRemaining} attaque(s) bonus.` });
     resetRollPhase(state);
   }
 }
 
-function applyEntoileOnBot(){
-  state.bot.statuses = state.bot.statuses || {};
-  if(!state.bot.statuses.entoile) state.bot.statuses.entoile = { stacks: 1, meta: {} };
+/* =========================
+   ENTOILÉ (ROLLBACK)
+   - Jeton sur la cible
+   - Prochaine attaque PARABLE devient IMPARABLE + jeton défaussé
+   - MAIS: on n'utilise PAS entoilé avec le COMBO (attaques bonus)
+========================= */
 
-  // à l'application: 2 dégâts IMPARABLES (isolés)
-  dealDamage(state.bot, 2);
-  log(state, "ENTOILÉ appliqué sur le bot → 2 dégâts IMPARABLES (isolés).");
-  pushSummary(state, { tag:"warn", title:"Entoilé", detail:"Jeton posé + 2 dégâts IMPARABLES (isolés)." });
+function giveEntoile(target, whoLabel){
+  target.statuses = target.statuses || {};
+  target.statuses.entoile = { stacks: 1, meta: {} };
+  log(state, `${whoLabel} applique ENTOILÉ (prochaine attaque PARABLE → IMPARABLE, puis jeton défaussé).`);
+  pushSummary(state, { tag:"warn", title:"Entoilé", detail:`Jeton posé sur ${whoLabel === "Joueur" ? "le bot" : "le joueur"}.` });
 }
 
+/** Applique la règle entoilé si applicable.
+ *  - Ne s'applique pas pendant les attaques bonus COMBO (extraAttacksRemaining>0)
+ *  - Retourne { parryableFinal, consumed }
+ */
+function applyEntoileRuleOnTarget({ target, parryable, isComboAttack }){
+  if(!parryable) return { parryableFinal: false, consumed: false };
+  if(isComboAttack) return { parryableFinal: true, consumed: false }; // ✅ pas d'entoilé avec combo
+
+  if(target.statuses?.entoile?.stacks > 0){
+    delete target.statuses.entoile;
+    return { parryableFinal: false, consumed: true }; // devient imparable + jeton consommé
+  }
+  return { parryableFinal: true, consumed: false };
+}
+
+/* =========================
+   ATTAQUES JOUEUR -> BOT
+========================= */
+
+function applyPlayerAttackToBot({ dmg, parryable, label }){
+  const isComboAttack = state.flow.extraAttacksRemaining > 0;
+  const entoile = applyEntoileRuleOnTarget({ target: state.bot, parryable, isComboAttack });
+
+  const finalParryable = entoile.parryableFinal;
+  if(entoile.consumed){
+    log(state, "ENTOILÉ (bot): attaque PARABLE → devient IMPARABLE, jeton défaussé.");
+    pushSummary(state, { tag:"warn", title:"Entoilé consommé", detail:"Attaque devenue IMPARABLE." });
+  }
+
+  dealDamage(state.bot, dmg);
+  log(state, `Joueur inflige ${dmg} dégâts (${finalParryable ? "PARABLES" : "IMPARABLES"}) — ${label}`);
+  pushSummary(state, { tag:"info", title:"Joueur attaque", detail:`${dmg} (${finalParryable ? "PARABLE" : "IMPARABLE"}) — ${label}` });
+
+  // COMBO flow: si on n'est pas déjà en chaîne bonus, on consomme COMBO pour démarrer la chaîne.
+  // Si on est déjà en chaîne, on décrémente.
+  if(state.flow.extraAttacksRemaining === 0){
+    spendComboAndGrantExtraAttacksIfAny();
+  } else {
+    afterPlayerAttackMaybeContinueCombo();
+  }
+}
+
+function applyEntoileOnBot(){
+  // ✅ rollback: pas de dégâts, juste jeton
+  // ✅ ET: "on utilise pas entoilée avec le combo" => poser entoilé ne déclenche pas/comptabilise pas dans le combo
+  giveEntoile(state.bot, "Joueur");
+  // IMPORTANT: on ne touche pas au flow COMBO ici.
+}
+
+/* =========================
+   BOT PLAY (immédiat)
+========================= */
+
 function botPlayImmediate(){
-  const { botChar, playerChar } = currentChars();
+  const { botChar } = currentChars();
 
   resetRollPhase(state);
   rollDice(state);
   log(state, `Bot lance: [${nums(state).join(", ")}]`);
 
-  // Helper: applique ENTOILÉ sur le joueur (si bot Miles/Spidey le peut)
-  function applyEntoileOnPlayer(){
-    state.player.statuses = state.player.statuses || {};
-    if(!state.player.statuses.entoile) state.player.statuses.entoile = { stacks: 1, meta: {} };
-
-    // À l'application : 2 dégâts IMPARABLES (isolés)
-    dealDamage(state.player, 2);
-    log(state, "ENTOILÉ appliqué sur le joueur → 2 dégâts IMPARABLES (isolés).");
-    pushSummary(state, { tag:"warn", title:"Entoilé", detail:"Jeton posé sur le joueur + 2 IMPARABLES (isolés)." });
-  }
-
-  // Helper: applique attaque bot immédiatement (en tenant compte d'ENTOILÉ éventuel sur le joueur)
   function botAttack({ dmg, parryable, label }){
-    // Si le joueur est ENTOILÉ : la prochaine attaque PARABLE devient IMPARABLE et consomme le jeton
-    if(parryable && state.player.statuses?.entoile?.stacks > 0){
-      delete state.player.statuses.entoile;
-      parryable = false;
-      log(state, "ENTOILÉ (joueur): l’attaque PARABLE du bot devient IMPARABLE et le jeton est retiré.");
+    // Bot n'a pas de "combo chain" géré pour l’instant → isComboAttack=false
+    const entoile = applyEntoileRuleOnTarget({ target: state.player, parryable, isComboAttack: false });
+    const finalParryable = entoile.parryableFinal;
+
+    if(entoile.consumed){
+      log(state, "ENTOILÉ (joueur): attaque PARABLE du bot → devient IMPARABLE, jeton défaussé.");
       pushSummary(state, { tag:"warn", title:"Entoilé consommé", detail:"Attaque du bot devenue IMPARABLE." });
     }
 
     dealDamage(state.player, dmg);
-    log(state, `Bot inflige ${dmg} dégâts (${parryable ? "PARABLES" : "IMPARABLES"}) — ${label}`);
-    pushSummary(state, { tag:"bad", title:"Bot attaque", detail:`${dmg} (${parryable ? "PARABLE" : "IMPARABLE"}) — ${label}` });
+    log(state, `Bot inflige ${dmg} dégâts (${finalParryable ? "PARABLES" : "IMPARABLES"}) — ${label}`);
+    pushSummary(state, { tag:"bad", title:"Bot attaque", detail:`${dmg} (${finalParryable ? "PARABLE" : "IMPARABLE"}) — ${label}` });
   }
 
-  // ctx bot : COMPLET (inclut applyEntoile)
+  function applyEntoileOnPlayer(){
+    giveEntoile(state.player, "Bot");
+  }
+
   const ctx = {
+    difficulty: state.difficulty,
     nums: nums(state),
     actor: state.bot,
     defender: state.player,
     state,
     log: (m)=>log(state, m),
-
     attackParryable: (dmg, label)=> botAttack({ dmg, parryable:true, label: label || "Attaque" }),
     attackUnblockable: (dmg, label)=> botAttack({ dmg, parryable:false, label: label || "Attaque" }),
-
-    // ✅ manquait : pour les persos qui posent ENTOILÉ (ex: Miles)
     applyEntoile: ()=> applyEntoileOnPlayer(),
   };
 
@@ -110,8 +169,11 @@ function botPlayImmediate(){
   }
 }
 
-function doDefenseInfo(){
+/* =========================
+   DEFENSE (info)
+========================= */
 
+function doDefenseInfo(){
   const { playerChar } = currentChars();
 
   if(typeof playerChar.getDefense !== "function"){
@@ -133,22 +195,27 @@ function doDefenseInfo(){
   const prevented = Math.max(0, out.prevented ?? 0);
   const ret = Math.max(0, out.retaliateUnblockable ?? 0);
 
-  // Renvoi si applicable (Miles)
   if(ret > 0){
     dealDamage(state.bot, ret);
     log(state, `Défense: renvoi ${ret} dégâts IMPARABLES au bot.`);
+    pushSummary(state, { tag:"good", title:"Renvoi", detail:`${ret} dégâts IMPARABLES au bot.` });
   }
 
   log(state, `Défense (${state.player.name}): prévention=${prevented}. ${out.detail || ""}`);
-  pushSummary(state, { tag:"good", title:"Défense", detail:`Prévention=${prevented}${ret ? ` · Renvoi=${ret} IMPARABLES` : ""}` });
+  pushSummary(state, { tag:"good", title:"Défense", detail:`Prévention=${prevented}` });
 
   rerender();
 }
+
+/* =========================
+   ABILITIES PLAYER
+========================= */
 
 function computeAbilities(){
   const { playerChar } = currentChars();
 
   const ctx = {
+    difficulty: state.difficulty,
     nums: nums(state),
     actor: state.player,
     defender: state.bot,
@@ -162,6 +229,10 @@ function computeAbilities(){
 
   return playerChar.getAbilities(ctx) || [];
 }
+
+/* =========================
+   TOKENS +/- UI
+========================= */
 
 function adjustToken(who, tokenId, delta){
   const { playerChar, botChar } = currentChars();
@@ -188,6 +259,10 @@ function adjustToken(who, tokenId, delta){
 
   rerender();
 }
+
+/* =========================
+   RENDER
+========================= */
 
 function rerender(){
   const abilities = computeAbilities();
@@ -220,7 +295,7 @@ function rerender(){
 function bind(id, event, handler){
   const el = document.getElementById(id);
   if(!el){
-    console.warn(`[bind] élément #${id} introuvable (GitHub Pages HTML pas à jour ?).`);
+    console.warn(`[bind] élément #${id} introuvable (HTML pas à jour/caché ?)`);
     return;
   }
   el.addEventListener(event, handler);
@@ -250,6 +325,13 @@ window.addEventListener("DOMContentLoaded", () => {
     doDefenseInfo();
   });
 
+  bind("difficultySelect", "change", () => {
+    state.difficulty = difficultySelect.value;
+    log(state, `Difficulté -> ${state.difficulty}`);
+    pushSummary(state, { tag:"info", title:"Difficulté", detail: state.difficulty });
+    rerender();
+  });
+
   bind("resetBtn", "click", () => location.reload());
 
   bind("clearLog", "click", () => {
@@ -259,14 +341,14 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   bind("playerSelect", "change", () => {
-    state = makeState(byId(playerSelect.value), byId(botSelect.value));
+    state = makeState(byId(playerSelect.value), byId(botSelect.value), difficultySelect.value);
     resetRollPhase(state);
     log(state, "Prêt.");
     rerender();
   });
 
   bind("botSelect", "change", () => {
-    state = makeState(byId(playerSelect.value), byId(botSelect.value));
+    state = makeState(byId(playerSelect.value), byId(botSelect.value), difficultySelect.value);
     resetRollPhase(state);
     log(state, "Prêt.");
     rerender();

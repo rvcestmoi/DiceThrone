@@ -1,13 +1,19 @@
 import { hasSmallStraight, hasLargeStraight } from "../engine.js";
 
+function pickByDifficulty(difficulty, easy, medium, hard){
+  if(difficulty === "hard") return hard;
+  if(difficulty === "medium") return medium;
+  return easy;
+}
+
 const spiderman = {
   id: "spiderman",
   name: "Spider-Man (Miles Morales)",
   hpMax: 50,
 
   tokensDefault: {
-    combo: 0, // max 1
-    invis: 0  // max 1
+    combo: 0,
+    invis: 0
   },
 
   tokenControls: [
@@ -27,8 +33,6 @@ const spiderman = {
     return c;
   },
 
-  // Défense Miles (fiche) :
-  // 3 dés ; chaque THWIP => +1 prévention + 1 dégât imparable (renvoi)
   getDefense({ rollDice, face }) {
     const rolls = rollDice(3);
     const faces = rolls.map(face);
@@ -42,7 +46,7 @@ const spiderman = {
   },
 
   getAbilities(ctx) {
-    const { nums, actor, log, attackParryable, attackUnblockable, applyEntoile } = ctx;
+    const { nums, actor, log, difficulty, attackParryable, attackUnblockable, applyEntoile } = ctx;
     const f = this.countFaces(nums);
     const abs = [];
 
@@ -50,47 +54,52 @@ const spiderman = {
     actor.tokens.combo = actor.tokens.combo || 0;
     actor.tokens.invis = actor.tokens.invis || 0;
 
-    // Allonge : 3/4/5 THWIP -> 4/5/6 parables
+    // Allonge (3/4/5 THWIP) : dégâts parables selon difficulté
     if (f.THWIP >= 3) {
-      const dmg = f.THWIP >= 5 ? 6 : (f.THWIP === 4 ? 5 : 4);
+      const dmg3 = pickByDifficulty(difficulty, 4, 5, 6);
+      const dmg4 = pickByDifficulty(difficulty, 5, 6, 7);
+      const dmg5 = pickByDifficulty(difficulty, 6, 7, 8);
+      const dmg = (f.THWIP >= 5) ? dmg5 : (f.THWIP === 4 ? dmg4 : dmg3);
+
       abs.push({
         name: "Allonge",
-        reqText: `THWIP ≥ 3 (actuel ${f.THWIP}) → ${dmg} PARABLES`,
+        reqText: `THWIP ≥ 3 (actuel ${f.THWIP}) → ${dmg} PARABLES (${difficulty})`,
         score: dmg,
         run: () => attackParryable(dmg, "Allonge"),
       });
     }
 
-    // CCCOMBO : 2 THWIP + 2 ARAIGNEES : 5 parables + jeton combo
+    // CCCOMBO : dégâts parables selon difficulté + combo
     if (f.THWIP >= 2 && f.ARAIGNEE >= 2) {
+      const dmg = pickByDifficulty(difficulty, 5, 6, 7);
       abs.push({
         name: "CCC O M B O",
-        reqText: "THWIP ≥ 2 & ARAIGNEE ≥ 2 → 5 PARABLES + COMBO",
-        score: 5.6,
+        reqText: `THWIP ≥ 2 & ARAIGNEE ≥ 2 → ${dmg} PARABLES + COMBO (${difficulty})`,
+        score: dmg + 0.6,
         run: () => {
-          attackParryable(5, "CCC O M B O");
-          actor.tokens.combo = 1; // max 1
+          attackParryable(dmg, "CCC O M B O");
+          actor.tokens.combo = 1;
           log("Gain: COMBO (max 1).");
         },
       });
     }
 
-    // Grimpe-murs : 2 THWIP + 3 TOILES : invis + 7 parables
+    // Grimpe-murs : invis + dégâts parables selon difficulté
     if (f.THWIP >= 2 && f.TOILE >= 3) {
+      const dmg = pickByDifficulty(difficulty, 7, 8, 9);
       abs.push({
         name: "Grimpe-murs",
-        reqText: "THWIP ≥ 2 & TOILE ≥ 3 → INVIS + 7 PARABLES",
-        score: 7.8,
+        reqText: `THWIP ≥ 2 & TOILE ≥ 3 → INVIS + ${dmg} PARABLES (${difficulty})`,
+        score: dmg + 0.8,
         run: () => {
           actor.tokens.invis = 1;
           log("Gain: INVISIBILITÉ (max 1).");
-          attackParryable(7, "Grimpe-murs");
+          attackParryable(dmg, "Grimpe-murs");
         },
       });
     }
 
-    // Réflexes : 1 THWIP + 2 TOILES + 1 ARAIGNEE
-    // dégâts parables = total de 2 dés ; si total < 6 => combo
+    // Réflexes : total de 2 dés (parable). Si total < 6 => combo
     if (f.THWIP >= 1 && f.TOILE >= 2 && f.ARAIGNEE >= 1) {
       abs.push({
         name: "Réflexes d’araignée",
@@ -110,41 +119,44 @@ const spiderman = {
       });
     }
 
-    // Piège petite/grande suite
+    // Piège : dégâts parables selon difficulté + ENTOILÉ (jeton)
     if (hasSmallStraight(nums) || hasLargeStraight(nums)) {
       if (hasLargeStraight(nums)) {
+        const dmg = pickByDifficulty(difficulty, 8, 9, 10);
         abs.push({
           name: "Piège (grande suite)",
-          reqText: "Grande suite → 8 PARABLES + ENTOILÉ",
-          score: 8.6,
+          reqText: `Grande suite → ${dmg} PARABLES + ENTOILÉ (prochaine attaque parable => imparable)`,
+          score: dmg + 0.6,
           run: () => {
-            attackParryable(8, "Piège (grande suite)");
+            attackParryable(dmg, "Piège (grande suite)");
             applyEntoile();
           },
         });
       } else {
+        const dmg = pickByDifficulty(difficulty, 5, 6, 7);
         abs.push({
           name: "Piège (petite suite)",
-          reqText: "Petite suite → 5 PARABLES + ENTOILÉ",
-          score: 5.6,
+          reqText: `Petite suite → ${dmg} PARABLES + ENTOILÉ (prochaine attaque parable => imparable)`,
+          score: dmg + 0.6,
           run: () => {
-            attackParryable(5, "Piège (petite suite)");
+            attackParryable(dmg, "Piège (petite suite)");
             applyEntoile();
           },
         });
       }
     }
 
-    // Allonge venimeuse : 4 araignées : invis + 7 imparables
+    // Allonge venimeuse : invis + dégâts imparables selon difficulté
     if (f.ARAIGNEE >= 4) {
+      const dmg = pickByDifficulty(difficulty, 7, 8, 9);
       abs.push({
         name: "Allonge venimeuse",
-        reqText: `ARAIGNEE ≥ 4 (actuel ${f.ARAIGNEE}) → INVIS + 7 IMPARABLES`,
-        score: 8.5,
+        reqText: `ARAIGNEE ≥ 4 → INVIS + ${dmg} IMPARABLES (${difficulty})`,
+        score: dmg + 1.0,
         run: () => {
           actor.tokens.invis = 1;
           log("Gain: INVISIBILITÉ (max 1).");
-          attackUnblockable(7, "Allonge venimeuse");
+          attackUnblockable(dmg, "Allonge venimeuse");
         },
       });
     }

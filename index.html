@@ -70,6 +70,13 @@
         <label>Bot</label>
         <select id="botSelect"></select>
 
+        <label>Difficulté</label>
+        <select id="difficultySelect">
+          <option value="easy">Facile</option>
+          <option value="medium">Moyen</option>
+          <option value="hard">Difficile</option>
+        </select>
+
         <button id="rollBtn">Lancer</button>
         <button id="rerollBtn">Relancer</button>
 
@@ -96,8 +103,9 @@
       <div class="panel" style="margin-top:12px">
         <b>Capacités joueur</b>
         <div class="small">
-          Attaques appliquées immédiatement. COMBO (si présent) est consommé après une attaque et redonne une phase offensive.
-          <br/>Le bouton Défense ne bloque plus une attaque (pas d’attente), il sert à faire le jet défensif (et renvoi si applicable).
+          Attaques appliquées immédiatement.
+          <br/>COMBO selon difficulté : Facile/Moyen = 2 attaques · Difficile = 3 attaques (dégâts cumulés).
+          <br/>Entoilé : dégâts IMPARABLES immédiats selon difficulté, puis défaussé.
         </div>
         <div class="abilities" id="abilities"></div>
       </div>

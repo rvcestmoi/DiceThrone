@@ -10,16 +10,23 @@ export function fillSelect(selectEl, characters){
 
 export function renderAll({ state, characters, abilities, faceProvider, onRunAbility, onToggleLock, onIncToken, onDecToken }){
   const hud = document.getElementById("hud");
+  const diffLabel = state.difficulty === "easy" ? "Facile" : (state.difficulty === "medium" ? "Moyen" : "Difficile");
+
+  const entoileBot = state.bot.statuses?.entoile?.stacks || 0;
+  const entoilePlayer = state.player.statuses?.entoile?.stacks || 0;
 
   hud.innerHTML = `
     <div class="small">
-      <b>Relances:</b> ${state.rerollsLeft}
+      <b>Difficulté:</b> ${diffLabel}
+      · <b>Relances:</b> ${state.rerollsLeft}
+      · <b>Attaques bonus restantes:</b> ${state.flow.extraAttacksRemaining}
       <br/>
       <b>Joueur:</b> ${state.player.name} HP ${state.player.hp}/${state.player.hpMax}
       · Combo:${state.player.tokens?.combo||0} · Invis:${state.player.tokens?.invis||0}
+      · Entoilé:${entoilePlayer}
       <br/>
       <b>Bot:</b> ${state.bot.name} HP ${state.bot.hp}/${state.bot.hpMax}
-      · Entoilé:${state.bot.statuses?.entoile?.stacks||0}
+      · Entoilé:${entoileBot}
     </div>
   `;
 

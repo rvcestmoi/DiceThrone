@@ -1,11 +1,15 @@
-export function makeState(playerChar, botChar){
+export function makeState(playerChar, botChar, difficulty="easy"){
   return {
+    difficulty, // "easy" | "medium" | "hard"
     rerollsLeft: 2,
     dice: Array.from({length:5}, ()=>({v:1, locked:false})),
     player: makeFighter(playerChar),
     bot: makeFighter(botChar),
     log: [],
-    summary: []
+    summary: [],
+    flow: {
+      extraAttacksRemaining: 0, // géré par COMBO
+    }
   };
 }
 
