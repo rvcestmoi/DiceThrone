@@ -51,29 +51,51 @@ function applyEntoileOnBot(){
 }
 
 function botPlayImmediate(){
-  const { botChar } = currentChars();
+  const { botChar, playerChar } = currentChars();
 
   resetRollPhase(state);
   rollDice(state);
   log(state, `Bot lance: [${nums(state).join(", ")}]`);
 
-  // ctx bot: applique dégâts immédiatement
+  // Helper: applique ENTOILÉ sur le joueur (si bot Miles/Spidey le peut)
+  function applyEntoileOnPlayer(){
+    state.player.statuses = state.player.statuses || {};
+    if(!state.player.statuses.entoile) state.player.statuses.entoile = { stacks: 1, meta: {} };
+
+    // À l'application : 2 dégâts IMPARABLES (isolés)
+    dealDamage(state.player, 2);
+    log(state, "ENTOILÉ appliqué sur le joueur → 2 dégâts IMPARABLES (isolés).");
+    pushSummary(state, { tag:"warn", title:"Entoilé", detail:"Jeton posé sur le joueur + 2 IMPARABLES (isolés)." });
+  }
+
+  // Helper: applique attaque bot immédiatement (en tenant compte d'ENTOILÉ éventuel sur le joueur)
+  function botAttack({ dmg, parryable, label }){
+    // Si le joueur est ENTOILÉ : la prochaine attaque PARABLE devient IMPARABLE et consomme le jeton
+    if(parryable && state.player.statuses?.entoile?.stacks > 0){
+      delete state.player.statuses.entoile;
+      parryable = false;
+      log(state, "ENTOILÉ (joueur): l’attaque PARABLE du bot devient IMPARABLE et le jeton est retiré.");
+      pushSummary(state, { tag:"warn", title:"Entoilé consommé", detail:"Attaque du bot devenue IMPARABLE." });
+    }
+
+    dealDamage(state.player, dmg);
+    log(state, `Bot inflige ${dmg} dégâts (${parryable ? "PARABLES" : "IMPARABLES"}) — ${label}`);
+    pushSummary(state, { tag:"bad", title:"Bot attaque", detail:`${dmg} (${parryable ? "PARABLE" : "IMPARABLE"}) — ${label}` });
+  }
+
+  // ctx bot : COMPLET (inclut applyEntoile)
   const ctx = {
     nums: nums(state),
     actor: state.bot,
     defender: state.player,
     state,
     log: (m)=>log(state, m),
-    attackParryable: (dmg, label)=>{
-      dealDamage(state.player, dmg);
-      log(state, `Bot inflige ${dmg} dégâts (PARABLES) — ${label}`);
-      pushSummary(state, { tag:"bad", title:"Bot attaque", detail:`${dmg} (PARABLE) — ${label}` });
-    },
-    attackUnblockable: (dmg, label)=>{
-      dealDamage(state.player, dmg);
-      log(state, `Bot inflige ${dmg} dégâts (IMPARABLES) — ${label}`);
-      pushSummary(state, { tag:"bad", title:"Bot attaque", detail:`${dmg} (IMPARABLE) — ${label}` });
-    },
+
+    attackParryable: (dmg, label)=> botAttack({ dmg, parryable:true, label: label || "Attaque" }),
+    attackUnblockable: (dmg, label)=> botAttack({ dmg, parryable:false, label: label || "Attaque" }),
+
+    // ✅ manquait : pour les persos qui posent ENTOILÉ (ex: Miles)
+    applyEntoile: ()=> applyEntoileOnPlayer(),
   };
 
   const abilities = (botChar.getAbilities(ctx) || []).slice().sort((a,b)=>(b.score||0)-(a.score||0));
@@ -84,7 +106,6 @@ function botPlayImmediate(){
     pushSummary(state, { tag:"bad", title:"Bot joue", detail: best.name });
     best.run();
   } else {
-    // attaque basique
     ctx.attackParryable(2, "Attaque basique");
   }
 }
@@ -193,50 +214,66 @@ function rerender(){
 }
 
 /* =========================
-   UI EVENTS
+   UI EVENTS (safe)
 ========================= */
 
-document.getElementById("rollBtn").addEventListener("click", ()=>{
-  rollDice(state);
-  log(state, `Joueur lance: [${nums(state).join(", ")}]`);
-  rerender();
-});
+function bind(id, event, handler){
+  const el = document.getElementById(id);
+  if(!el){
+    console.warn(`[bind] élément #${id} introuvable (GitHub Pages HTML pas à jour ?).`);
+    return;
+  }
+  el.addEventListener(event, handler);
+}
 
-document.getElementById("rerollBtn").addEventListener("click", ()=>{
-  if(state.rerollsLeft <= 0) return alert("Plus de relances.");
-  state.rerollsLeft--;
-  rollDice(state);
-  log(state, `Joueur relance: [${nums(state).join(", ")}]`);
-  rerender();
-});
+window.addEventListener("DOMContentLoaded", () => {
+  bind("rollBtn", "click", () => {
+    rollDice(state);
+    log(state, `Joueur lance: [${nums(state).join(", ")}]`);
+    rerender();
+  });
 
-document.getElementById("playBotBtn").addEventListener("click", ()=>{
-  botPlayImmediate();
-  rerender();
-});
+  bind("rerollBtn", "click", () => {
+    if(state.rerollsLeft <= 0) return alert("Plus de relances.");
+    state.rerollsLeft--;
+    rollDice(state);
+    log(state, `Joueur relance: [${nums(state).join(", ")}]`);
+    rerender();
+  });
 
-document.getElementById("defenseBtn").addEventListener("click", ()=>{
-  doDefenseInfo();
-});
+  bind("playBotBtn", "click", () => {
+    botPlayImmediate();
+    rerender();
+  });
 
-document.getElementById("resetBtn").addEventListener("click", ()=>location.reload());
-document.getElementById("clearLog").addEventListener("click", ()=>{ state.log = []; state.summary = []; rerender(); });
+  bind("defenseBtn", "click", () => {
+    doDefenseInfo();
+  });
 
-playerSelect.addEventListener("change", ()=>{
-  state = makeState(byId(playerSelect.value), byId(botSelect.value));
+  bind("resetBtn", "click", () => location.reload());
+
+  bind("clearLog", "click", () => {
+    state.log = [];
+    state.summary = [];
+    rerender();
+  });
+
+  bind("playerSelect", "change", () => {
+    state = makeState(byId(playerSelect.value), byId(botSelect.value));
+    resetRollPhase(state);
+    log(state, "Prêt.");
+    rerender();
+  });
+
+  bind("botSelect", "change", () => {
+    state = makeState(byId(playerSelect.value), byId(botSelect.value));
+    resetRollPhase(state);
+    log(state, "Prêt.");
+    rerender();
+  });
+
+  // init
   resetRollPhase(state);
   log(state, "Prêt.");
   rerender();
 });
-
-botSelect.addEventListener("change", ()=>{
-  state = makeState(byId(playerSelect.value), byId(botSelect.value));
-  resetRollPhase(state);
-  log(state, "Prêt.");
-  rerender();
-});
-
-// init
-resetRollPhase(state);
-log(state, "Prêt.");
-rerender();
