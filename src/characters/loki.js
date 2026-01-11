@@ -5,6 +5,19 @@ const loki = {
   name:"Loki",
   hpMax:50,
   tokensDefault:{ illusion:0, sac:0, ensorcele:0 },
+  statusList: [
+  { id: "ensorcele", name: "Ensorcelé" },
+  { id: "confus", name: "Confusion" }, // exemple si tu en as
+],
+statusEffects: {
+  // ✅ Effet : tant que ensorcelé>0, le bot "rate" souvent son meilleur choix
+  ensorcele: {
+    scoreAbility: ({ stacks, ability }) => {
+      // on dégrade le score (donc le bot choisit moins bien)
+      return { ...ability, score: (ability.score ?? 0) - stacks * 2.5 };
+    },
+  }
+},
 
   face(n){
     if(n<=2) return "SCEPTRE";
@@ -51,3 +64,5 @@ const loki = {
 };
 
 export default loki;
+
+

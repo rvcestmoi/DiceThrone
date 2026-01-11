@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Dice Throne — Bot</title>
   <style>
-    /* Tu peux remettre ton CSS complet ici (celui “Spidey”) */
     body{font-family:system-ui;margin:0;padding:16px;background:#0b0f14;color:#e8f0ff}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     select,button{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.25);color:#e8f0ff}
     button{cursor:pointer}
     .panel{border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:12px;margin-top:12px;background:rgba(255,255,255,.03)}
     .log{white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px;max-height:260px;overflow:auto}
+    .small{opacity:.8;font-size:12px}
   </style>
 </head>
 
@@ -25,12 +25,18 @@
 
     <button id="rollBtn">Lancer</button>
     <button id="rerollBtn">Relancer</button>
+
     <button id="endPlayerTurnBtn">Fin tour joueur</button>
     <button id="playBotBtn">Jouer bot</button>
+
+    <button id="defendBtn">Défendre</button>
+    <button id="skipDefenseBtn">Passer défense</button>
+
     <button id="resetBtn">Reset</button>
   </div>
 
   <div class="panel">
+    <div id="hud" class="small"></div>
     <div id="diceRow"></div>
     <div id="abilities"></div>
   </div>

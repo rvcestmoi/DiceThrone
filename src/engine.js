@@ -5,7 +5,12 @@ export function makeState(playerChar, botChar){
     dice: Array.from({length:5}, ()=>({v:1, locked:false})),
     player: makeFighter(playerChar),
     bot: makeFighter(botChar),
-    log: []
+    log: [],
+    flow: {
+      pendingAttack: null,          // { from:"player"|"bot", dmg:number, unblockable:boolean }
+      lastPlayerAttackResolved: false,
+      comboUsedThisTurn: false,
+    }
   };
 }
 
@@ -16,6 +21,7 @@ function makeFighter(char){
     hp: char.hpMax ?? 50,
     hpMax: char.hpMax ?? 50,
     tokens: structuredClone(char.tokensDefault ?? {}),
+    statuses: {} // ex: { entoile:{stacks:1} }
   };
 }
 
@@ -47,12 +53,12 @@ export function heal(target, amount){
   target.hp = Math.min(target.hpMax, target.hp + Math.max(0, amount));
 }
 
-// Suites (utilisées par plusieurs persos)
 export function hasSmallStraight(arr){
   const s = [...new Set(arr)].sort((a,b)=>a-b);
   const seqs = [[1,2,3,4],[2,3,4,5],[3,4,5,6]];
   return seqs.some(seq => seq.every(n=>s.includes(n)));
 }
+
 export function hasLargeStraight(arr){
   const s = [...new Set(arr)].sort((a,b)=>a-b);
   return s.length===5 && (
